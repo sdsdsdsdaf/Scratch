@@ -3,8 +3,8 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
  
 import numpy as np
-from Functions import sigmoid, softmax, cross_entropy_error
-from Grdient import numerical_gradient
+from common.Functions import sigmoid, softmax, cross_entropy_error
+from common.Grdient import numerical_gradient
 
 #sys.path.append(os.pardir)
 
