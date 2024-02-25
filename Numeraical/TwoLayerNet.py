@@ -18,7 +18,7 @@ class TwoLayerNet:
         self.params['b1'] = np.zeros(hidden_size)
         self.params['W2'] = weight_init_std*\
                             np.random.randn(hidden_size, output_size)
-        self.params['b1'] = np.zeros(output_size)
+        self.params['b2'] = np.zeros(output_size)
 
     def predict(self, x):
         W1, W2 = self.params['W1'], self.params['W2']
@@ -26,7 +26,7 @@ class TwoLayerNet:
 
         a1 = np.dot(x, W1) + b1
         z1 = sigmoid(a1)
-        a2 = np.dot((z1, W2)) + b2
+        a2 = np.dot(z1, W2) + b2
         y = softmax(a2)
 
         return y
@@ -41,12 +41,16 @@ class TwoLayerNet:
         y = np.argmax(y, axis=1)
         t = np.argmax(t, axis=1)
 
+        acc = np.sum(y==t) / float(x.shape[0])
+
+        return 
+    
     def numerical_gradient(self, x, t):
         loss_W = lambda W: self.loss(x, t)
 
         grads = {}
 
-        for weight_name, weight_value in enumerate(self.params):
+        for weight_name, weight_value in self.params.items():
             grads[weight_name] = np.zeros_like(weight_value)
 
         for weight_name in self.params.keys():
