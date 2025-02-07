@@ -1,5 +1,8 @@
-import numpy as np
+import torch
 
-np_arr = np.array(list(range(1000)))
+arr = torch.randn(2,3, device=torch.device("cuda" if torch.cuda.is_available() else 'cpu') )
 
-print()
+li = [1,2,3,4,5]
+li.reverse()
+
+print(li)

@@ -43,7 +43,7 @@ class TwoLayerNet:
 
         acc = np.sum(y==t) / float(x.shape[0])
 
-        return 
+        return acc
     
     def numerical_gradient(self, x, t):
         loss_W = lambda W: self.loss(x, t)
