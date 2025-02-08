@@ -1,4 +1,8 @@
 # coding: utf-8
+import os, sys
+os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+
 import numpy as np
 from common.functions import *
 from common.util import im2col, col2im
