@@ -20,7 +20,7 @@ class Trainer:
         self.t_test = t_test
         self.epochs = epochs
         self.batch_size = mini_batch_size
-        self.evaluate_sample_num_per_epoch = evaluate_sample_num_per_epoch
+        self.evaluate_sample_num_per_epoch = evaluate_sample_num_per_epoch #샘플로 평가 진행할 시
 
         # optimzer
         optimizer_class_dict = {'sgd':SGD, 'momentum':Momentum, 'nesterov':Nesterov,
@@ -28,8 +28,8 @@ class Trainer:
         self.optimizer = optimizer_class_dict[optimizer.lower()](**optimizer_param)
         
         self.train_size = x_train.shape[0]
-        self.iter_per_epoch = max(self.train_size / mini_batch_size, 1)
-        self.max_iter = int(epochs * self.iter_per_epoch)
+        self.iter_per_epoch = max(self.train_size / mini_batch_size, 1) #1에폭당 실시할 학습의 횟수
+        self.max_iter = int(epochs * self.iter_per_epoch) #총 학습 횟수
         self.current_iter = 0
         self.current_epoch = 0
         
@@ -41,7 +41,9 @@ class Trainer:
         batch_mask = np.random.choice(self.train_size, self.batch_size)
         x_batch = self.x_train[batch_mask]
         t_batch = self.t_train[batch_mask]
-        
+
+        self.verbose = self.current_epoch % 10 == 0 and not self.current_epoch == 0 
+
         grads = self.network.gradient(x_batch, t_batch)
         self.optimizer.update(self.network.params, grads)
         
@@ -49,14 +51,14 @@ class Trainer:
         self.train_loss_list.append(loss)
         if self.verbose: print("train loss:" + str(loss))
         
-        if self.current_iter % self.iter_per_epoch == 0:
+        if self.current_iter % self.iter_per_epoch == 0: #1에폭당 평가
             self.current_epoch += 1
             
             x_train_sample, t_train_sample = self.x_train, self.t_train
             x_test_sample, t_test_sample = self.x_test, self.t_test
             if not self.evaluate_sample_num_per_epoch is None:
                 t = self.evaluate_sample_num_per_epoch
-                x_train_sample, t_train_sample = self.x_train[:t], self.t_train[:t]
+                x_train_sample, t_train_sample = self.x_train[:t], self.t_train[:t] #t번째 데이터까지 잘라서 씀
                 x_test_sample, t_test_sample = self.x_test[:t], self.t_test[:t]
                 
             train_acc = self.network.accuracy(x_train_sample, t_train_sample)
@@ -68,7 +70,7 @@ class Trainer:
         self.current_iter += 1
 
     def train(self):
-        for i in range(self.max_iter):
+        for _ in range(self.max_iter):
             self.train_step()
 
         test_acc = self.network.accuracy(self.x_test, self.t_test)

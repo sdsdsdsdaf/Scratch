@@ -50,6 +50,8 @@ def _load_label(file_name):
         labels = np.frombuffer(f.read(), np.uint8, offset = 8)
     print("Done")
 
+    return labels
+
 def _load_img(file_name):
     file_path = dataset_dir + "/" + file_name
     
@@ -68,6 +70,8 @@ def _convert_numpy():
     dataset['train_label'] = _load_label(key_file['train_label'])    
     dataset['test_img'] = _load_img(key_file['test_img'])
     dataset['test_label'] = _load_label(key_file['test_label'])
+
+    return dataset
 
 def init_mnist():
     download_mnist()   
@@ -111,7 +115,7 @@ def load_mnist(normalize=True, flatten=True, one_hot_label=False):
     if normalize:
         for key in ('train_img', 'test_img'):
             dataset[key] = dataset[key].astype(np.float64)
-            dataset /= 255.0
+            dataset[key] /= 255.0
 
 
     if one_hot_label:
@@ -122,7 +126,7 @@ def load_mnist(normalize=True, flatten=True, one_hot_label=False):
         for key in ('train_img', 'test_img'):
             dataset[key] = dataset[key].reshape(-1, -1, 28, 28)
 
-    return (dataset['train_img'], dataset['train_label'], dataset['test_img'], dataset['test_label'])
+    return (dataset['train_img'], dataset['train_label']), ( dataset['test_img'], dataset['test_label'])
 
 
 if __name__ == '__main__':
