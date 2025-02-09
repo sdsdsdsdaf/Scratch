@@ -186,3 +186,90 @@ class BatchNormalization:
         self.dbeta = dbeta
         
         return dx
+
+class Convolution:
+    def __init__(self, W, b, stride=1, pad=0): #W = Filter, b= b 똑같이 편향
+        self.W = W
+        self.b = b
+        self.stride = stride
+        self.pad = pad
+
+        #역전파 시 기억해야 할 값들
+        self.x = None
+        self.col = None   #역전파시 dx를 구하기 위해서는 이전에 곱해진 이미지가 필요  --> 곱셈노드에서는 다른 노드의 입력값이 미분값
+        self.col_W = None #역전파시 dw를 구하기 위해서는 이전에 곱해진 필터가 필요함 
+
+        self.dW = None
+        self.db = None
+
+    def forward(self, x):
+        FN, C, FH, FW  = self.W.shape
+        N, C, H, W = x.shape
+        out_h = int((H + 2* self.pad - FH) / self.stride) + 1
+        out_w = int((W + 2*self.pad - FW) / self.stride)
+
+        col = im2col(x, FH, FW, self.stride, self.pad)
+        col_W = self.W.reshape(FN, -1).T #필터를 한줄로 펼친것 -> 이때 self.W 는 데이터개수가 행의 개수 계산할 것들이 열임 그러므로 내적곱을 진행하기 위해서는 전치를 해줘야함
+
+        out = np.dot(col, col_W) + self.b #out.shape = [N, FN]
+        out = out.reshape(N, out_h, out_w, -1).transpoe(0, 3, 2, 1) #out을 [N, out_h, out_w, FN] 여기서 FN은 다음층의 채널 개수 --> 이를 [N, FN(다음층의 C), out_h, out_w]
+
+        self.x = x
+        self.col = col
+        self.col_W = col_W
+
+        return out
+    
+    def backward(self, dout):
+        FN, C, FH, FW = self.W.shape
+        dout = dout.transpose(0, 2, 3, 1).reshape(-1, FN) #backward연산을 위해 저장된  col, col_w와 같이 [데이터개수, out_h, out_w, 채널개수] 로 성형한 뒤 내적곱을 하기 위해 전치 
+
+        self.db = np.sum(dout, axis=0)
+        self.dW = np.dot(self.col.T, dout)
+        self.dW = self.dW.transpoe(1,0).reshape(FN, C, FH, FW)
+
+        dcol = np.dot(dout, self.col_W.T, dout)
+        dx = col2im(dcol, self.x.shape, FH, FW, self.stride, self.pad)
+
+        return dx
+    
+class Pooling:
+    def __init__(self, pool_h, pool_w, stride=1, pad=0):
+        self.pool_h = pool_h
+        self.pool_w = pool_w
+        self.stride = stride
+        self.pad = pad
+
+        self.x = None
+        self.arg_max = None
+
+    def forward(self, x):
+        N, C, H, W = self.x.shape
+
+        out_h = int((H + 2*self.pad -self.pool_h) / self.stride) + 1
+        out_w = int((W + 2*self.pad - self.pool_w) / self.stride) + 1
+
+        col = im2col(x, self.pool_h, self.pool_w, self.stride, self.pad)
+        col = col.reshape(-1, self.pool_h*self.pool_w) #밑바닥부터 시작하는 딥러닝1 248쪽의 그림 7-21참조
+
+        arg_max = np.argmax(col, axis=1) #np.argmax return 최댓값의 위치(인덱스)반화
+        out = np,max(col, axis=1)
+        out  = out.reshape(N, out_h, out_w, C).tranpose(0, 3, 1, 2)
+
+        self.x = x
+        self.arg_max = arg_max
+
+        return out
+
+    def backward(self, dout):
+        dout = dout.transpose(0, 2, 3, 1)  #[N, FN, FH, FW] -> [N, FH, FW, C]로 전치
+        
+        pool_size = self.pool_h * self.pool_w
+        dmax = np.zeros((dout.size, pool_size))
+        dmax[np.arange(self.arg_max.size), self.arg_max.flatten()] = dout.flatten()
+        dmax = dmax.reshape(dout.shape + (pool_size,)) 
+        
+        dcol = dmax.reshape(dmax.shape[0] * dmax.shape[1] * dmax.shape[2], -1)
+        dx = col2im(dcol, self.x.shape, self.pool_h, self.pool_w, self.stride, self.pad)
+        
+        return dx
