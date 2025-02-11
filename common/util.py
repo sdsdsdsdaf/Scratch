@@ -1,6 +1,6 @@
 # coding: utf-8
-import numpy as np
-
+#import numpy as np
+import cupy as np
 
 def smooth_curve(x):
     """손실 함수의 그래프를 매끄럽게 하기 위해 사용

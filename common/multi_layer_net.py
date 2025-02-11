@@ -2,7 +2,8 @@
 import os, sys
 os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))  # 부모 디렉터리의 파일을 가져올 수 있도록 설정
-import numpy as np
+#import numpy as np
+import cupy as np
 from collections import OrderedDict
 from common.layers import *
 from common.gradient import numerical_gradient

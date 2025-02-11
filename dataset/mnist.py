@@ -7,7 +7,8 @@ import os.path
 import gzip
 import pickle
 import os
-import numpy as np
+#import numpy as np
+import cupy as np
 
 url_base = 'http://yann.lecun.com/exdb/mnist/'
 

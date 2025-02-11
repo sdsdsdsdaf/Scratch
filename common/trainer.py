@@ -2,8 +2,10 @@
 import os, sys
 os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))  # 부모 디렉터리의 파일을 가져올 수 있도록 설정
-import numpy as np
+#import numpy as np
+import cupy as np
 from common.optimizer import *
+import time
 
 class Trainer:
     """신경망 훈련을 대신 해주는 클래스
@@ -37,6 +39,8 @@ class Trainer:
         self.train_acc_list = []
         self.test_acc_list = []
 
+        self.start_time = None #시가 측정시 필요하 코드드
+
     def train_step(self):
         batch_mask = np.random.choice(self.train_size, self.batch_size)
         x_batch = self.x_train[batch_mask]
@@ -66,10 +70,15 @@ class Trainer:
             self.train_acc_list.append(train_acc)
             self.test_acc_list.append(test_acc)
 
-            if self.verbose: print("=== epoch:" + str(self.current_epoch) + ", train acc:" + str(train_acc) + ", test acc:" + str(test_acc) + " ===")
+            if self.verbose:
+                spend_time = time.time() - self.start_time
+                print("=== epoch:" + str(self.current_epoch) + ", train acc:" + str(train_acc) + ", test acc:" + str(test_acc) +", time per epoch:" + str(round(spend_time, 4)) +" ===")
+                self.start_time = time.time()
         self.current_iter += 1
 
     def train(self):
+        
+        self.start_time = time.time()
         for _ in range(self.max_iter):
             self.train_step()
 
