@@ -120,7 +120,7 @@ class BatchNormalization:
     """
     http://arxiv.org/abs/1502.03167
     """
-    def __init__(self, gamma, beta, momentum=0.9, running_mean=None, running_var=None):
+    def __init__(self, gamma, beta, momentum=0.9, running_mean=None, running_var=None): #gamma외 beta가 affine 계층에서의 가중치 역할 rX + b
         self.gamma = gamma
         self.beta = beta
         self.momentum = momentum
