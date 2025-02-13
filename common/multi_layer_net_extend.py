@@ -12,7 +12,7 @@ class MultiLayerNetExtend:
 
     Parameters
     ----------
-    input_size : 입력 크기（MNIST의 경우엔 784）
+    input_size : 입력 크기（MNIST의 경우엔 784）c
     hidden_size_list : 각 은닉층의 뉴런 수를 담은 리스트（e.g. [100, 100, 100]）
     output_size : 출력 크기（MNIST의 경우엔 10）
     activation : 활성화 함수 - 'relu' 혹은 'sigmoid'

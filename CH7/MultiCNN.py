@@ -52,6 +52,10 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         if not np.array(pooling_list) == 2:
             pooling_list = [pooling_list]
 
+        self.use_batchnorm = use_batch_norm
+        self.use_dropout = use_dropout
+        self.dropout_ration = dropout_ration
+        self.weight_decay_lambda = weight_decay_lambda
 
         conv_parm = []
         for filter_shape in filter_shape_list:
@@ -65,6 +69,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         prev_node = 0
         conv_i = 0
         affine_i = 0
+        output_node_num = []
 
 
         for layer in layer_list:
@@ -73,13 +78,14 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
                 out_w = (out_w + 2*filter_shape_list[conv_i][FW]) // filter_shape_list[conv_i][STRIDE] + 1
                 prev_node = fc * out_h * out_w 
                 pre_node_num.append(prev_node) #cnn에서는 이미지 블록 한개의 크기  
-
+                output_node_num.append(input_dim[0] * prev_node)
                 fc = filter_shape_list[conv_i][FN]
                 conv_i += 1
             
             if layer == 'affine':
                 pre_node_num.append(prev_node)
                 prev_node = hidden_layer_list[affine_i]
+                output_node_num.append(hidden_layer_list[affine_i])
                 affine_i += 1
 
         if weight_init_std.lower() in ('relu', 'he'):
@@ -104,24 +110,111 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
                 self.params[f"W{idx+1}"] = weight_init_scale[idx] * np.random.randn(
                     filter_shape_list[conv_i][FN], pre_channel_num, filter_shape_list[conv_i][FH], filter_shape_list[conv_i][FW]) #필터 크기 (FN, C, FH, FW)
                 self.params[f"b{idx+1}"] = np.zeros(filter_shape_list[conv_i][FN]) #완전 연결 계층에서 출력층 노드에 한개씩 편향 적용 한 것처럼 필터 한개당 한개의 편향 적용
-                prev_node = pre_node_num[conv_i]*[filter_shape_list[FN]]
+                
+                prev_node = pre_node_num[conv_i]*filter_shape_list[FN]
                 pre_channel_num = filter_shape_list[conv_i][FN]
+
                 conv_i += 1
 
             if layer == 'affine':
                 self.params[f"W{idx+1}"] = weight_init_scale[idx * np.random.randn(pre_node_num ,hidden_layer_list[affine_i])]
-                self.params[f'W{idx+1}'] = np.zeros(hidden_layer_list[affine_i])
+                self.params[f'b{idx+1}'] = np.zeros(hidden_layer_list[affine_i])
                 prev_node = hidden_layer_list[affine_i]
                 affine_i += 1
 
         #계층 생성
         conv_i = 0
         affine_i = 0
-        batch_norm_i = 0
-        dropout_i = 0
         self.layers = OrderedDict()
-        layer_type = {'affine': Affine, 'conv': Convolution, 'pooling': Pooling, 'relu': Relu,
-                        'sigmoid': Sigmoid, 'dropout': Dropout, 'batchnorm': BatchNormalization}
+        self.layer_type = {'affine': Affine, 'conv': Convolution}
+        self.activation_function = {'relu': Relu, 'sigmoid': Sigmoid}
+        layer_with_weight = 0
 
+        for layer in layer_list:
             
+            if layer == 'softmax':
+                self.last_layer = self.layers.pop() #Softmax층은 역전파시에만 활용하기 때문에 따로 제외
+
+            if layer in self.activation_function.keys():
+                self.layers[f'activation_function{layer_with_weight}'] = self.activation_function[layer]()
             
+            if layer == "pooling":
+                pooling_size = pooling_list.pop()
+                self.layers[f'pooling{layer_with_weight}'] = Pooling(pooling_size[0], pooling_size[1], pooling_size[2])
+
+            if layer == 'dropout':
+                self.layers[f'dropout{layer_with_weight}'] = Dropout()
+
+            if layer in self.layer_type.keys():
+                layer_with_weight += 1
+                self.layers[layer+str(layer_with_weight)] = self.layer_type(self.params[f'W{layer_with_weight}'],self.params[f'b{layer_with_weight}']) 
+
+                if self.use_batchnorm:
+                    output_node = output_node_num.pop()
+                    self.params[f'gamma{layer_with_weight}'] = np.ones(output_node)
+                    self.params[f'beta{layer_with_weight}'] = np.zeros(output_node)
+                    self.layers[f'batchNorm{layer_with_weight}'] = BatchNormalization(self.params[f'gamma{layer_with_weight}'], self.params[f'beta{layer_with_weight}'])
+
+                if self.use_dropout:
+                    self.layers[f'dropout{layer_with_weight}'] = Dropout(self.dropout_ration)
+
+        self.layer_with_weight_num = layer_with_weight
+
+        self.layers.pop(f'batchNorm{layer_with_weight}', None) #출력층에서는 배치정규화를 시행하지 않음 모델의 표현력 때문에
+        self.params.pop(f'gamma{layer_with_weight}', None) #딕셔너리의 pop메서드는 pop(not in dictionray key, Argu1) -> return Argu1
+        self.params.pop(f'beta{layer_with_weight}', None)
+
+        self.layers.pop(f'dropout{layer_with_weight}', None)#출력층의 드롭아웃은 없음 있으면 출력층의 일부만 사용하게 됨됨
+            
+    def predict(self, x, train_flg = False):
+        for key, layer in self.layers.items():
+            if key in ('dropout', 'batchnorm'):
+                x = layer.forward(x, train_flg)
+            else:
+                x = layer.forward(x)
+
+    def loss(self, x, t, train_flg = False): #수정할것 태스트 동작후에
+        y = self.predict(x, train_flg)
+
+        weight_decay = 0
+        idx = 1
+        for layer in self.layers:
+            if layer in self.layer_type.keys():
+                W = self.params[f'W{idx}']
+                idx += 1
+                weight_decay += 0.5 *self.weight_decay_lambda * np.sum(W**2)
+
+        return self.last_layer.forward(y, t) + weight_decay
+    
+    def accuracy(self, X, T):
+        Y = self.predict(X, train_flg=False)
+        Y = np.argmax(Y, axis=1)
+        if T.ndim != 1 : T = np.argmax(T, axis=1)
+
+        accuracy = np.sum(Y == T) / float(X.shape[0])
+        return accuracy
+    
+    def gradient(self, x, t):
+        # forward
+        self.loss(x, t, train_flg=True)
+
+        # backward
+        dout = 1
+        dout = self.last_layer.backward(dout)
+
+        layers = list(self.layers.values())
+        layers.reverse()
+        for layer in layers:
+            dout = layer.backward(dout)
+
+        # 결과 저장
+        grads = {}
+        for idx in range(1, self.hidden_layer_num+2):
+            grads['W' + str(idx)] = self.layers['Affine' + str(idx)].dW + self.weight_decay_lambda * self.params['W' + str(idx)]
+            grads['b' + str(idx)] = self.layers['Affine' + str(idx)].db
+
+            if self.use_batchnorm and idx != self.hidden_layer_num+1:
+                grads['gamma' + str(idx)] = self.layers['BatchNorm' + str(idx)].dgamma
+                grads['beta' + str(idx)] = self.layers['BatchNorm' + str(idx)].dbeta
+
+        return grads

@@ -1,6 +1,7 @@
 import torch
 import cupy as np
 import time
+from collections import OrderedDict
 arr = torch.randn(2,3, device=torch.device("cuda" if torch.cuda.is_available() else 'cpu') )
 
 #print(arr)
@@ -26,4 +27,9 @@ if __name__ == "__main__":
     for idx, ele in enumerate(li):
         dic[f'W{idx}'] = ele
 
-    print(dic)
+    mydic = OrderedDict()
+    mydic.update({'1': 1, '2':2})
+
+    key = input('입력하세요')
+    key = key.lower()
+    print(key in ('dropout', 'batchnorm'))

@@ -150,7 +150,7 @@ class BatchNormalization:
     def __forward(self, x, train_flg):
         if self.running_mean is None:
             N, D = x.shape
-            self.running_mean = np.zeros(D)
+            self.running_mean = np.zeros(D) #각각의 노드들마다 이동평균이 한개씩 존재
             self.running_var = np.zeros(D)
                         
         if train_flg:
@@ -287,3 +287,8 @@ class Pooling:
         dx = col2im(dcol, self.x.shape, self.pool_h, self.pool_w, self.stride, self.pad)
         
         return dx
+
+if __name__ == "__main__":
+    mybn = BatchNormalization(np.ones(24), np.zeros(24))
+
+    mybn.forward(np.random.randn(3,4,5,6))
