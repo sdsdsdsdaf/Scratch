@@ -150,7 +150,7 @@ class BatchNormalization:
     def __forward(self, x, train_flg):
         if self.running_mean is None:
             N, D = x.shape
-            self.running_mean = np.zeros(D) #각각의 노드들마다 이동평균이 한개씩 존재
+            self.running_mean = np.zeros(D) #각각의 노드들마다 이동평균이 한개씩 존재 cnn에서는 한개의 점마다
             self.running_var = np.zeros(D)
                         
         if train_flg:

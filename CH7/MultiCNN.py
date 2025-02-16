@@ -6,7 +6,7 @@ from collections import OrderedDict
 from common.layers import *
 
 FN, C,FH, FW, PAD, STRIDE = 0, 1, 2, 3, 4, 5
-
+PH, PW, P_STRIDE = 0, 1, 2
 
 class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 흘러가지 않음
     """합성곱 다층 신경망(확장판)
@@ -30,7 +30,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
     use_batchNorm : 배치 정규화 사용 여부
     """
     def __init__(self, input_dim = (1, 28, 28), layer_list = ['conv', 'relu', 'pooling', 'affine', 'relu', 'affine', 'softmax'], #여기서 relu, softmax, pooling은 가중치가 없는 계층
-                 filter_shape_list = [[30, 5, 5, 0, 1]], hidden_layer_list = [[50],[50]], pooling_list = [[2, 2, 2], [2,2,2]], output_size = 10, activation = "ReLu", weight_init_std = 'ReLu', weight_decay_lambda=0,
+                 filter_shape_list = [[30, 1, 5, 5, 0, 1]], hidden_layer_list = [100,100], pooling_list = [[2, 2, 2], [2,2,2]], output_size = 10, activation = "ReLu", weight_init_std = 'ReLu', weight_decay_lambda=0,
                  use_dropout = False, dropout_ration = 0.5, use_batch_norm=False):
         layer_list = [layer.lower() for layer in layer_list ]
         try:
@@ -41,15 +41,13 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
             assert weight_init_std.lower() in ('relu', 'sigmoid', 'he', 'xavier'), "Not implement exclude relu and sigmoid activation function" 
 
             for filter_shape in filter_shape_list:
-                assert len(filter_shape) == 5, "You have write 5 element"
+                assert len(filter_shape) == 6, "You have write 6 element (FN, C, FH, FW, PAD, STRIDE)"
         except:
             sys.exit()
 
         if not np.array(filter_shape_list).ndim == 2:
             filter_shape_list =[filter_shape_list] 
-        if not np.array(hidden_layer_list).ndim == 2:
-            hidden_layer_list = [[hidden_layer_list]]
-        if not np.array(pooling_list) == 2:
+        if not np.array(pooling_list).ndim == 2:
             pooling_list = [pooling_list]
 
         self.use_batchnorm = use_batch_norm
@@ -62,31 +60,46 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
             conv_parm.append({'fliter_num': filter_shape[FN], 'filter_ch' : filter_shape[C],'fliter_h': filter_shape[FH], 'fliter_w': filter_shape[FW], 'pad': filter_shape[PAD], 'stride': filter_shape[STRIDE]})
         
         # 'he' 초깃값 활용 위해 앞 노드 개수 계산 conv계층은 필터 한개의 크기 c*fh*fw, affine계층은 앞 노드의 출력 노드 개수
-        pre_node_num = [input_dim[0] * filter_shape_list[0][FH] * filter_shape_list[0][FW]] 
+        pre_node_num = [] 
         fc = input_dim[-3]
         out_h = input_dim[-2]
         out_w = input_dim[-1]
         prev_node = 0
         conv_i = 0
         affine_i = 0
+        pooling_i = 0
         output_node_num = []
 
 
         for layer in layer_list:
             if layer == 'conv':
-                out_h = (out_h + 2*filter_shape_list[conv_i][FH]) // filter_shape_list[conv_i][STRIDE] + 1  
-                out_w = (out_w + 2*filter_shape_list[conv_i][FW]) // filter_shape_list[conv_i][STRIDE] + 1
-                prev_node = fc * out_h * out_w 
-                pre_node_num.append(prev_node) #cnn에서는 이미지 블록 한개의 크기  
-                output_node_num.append(input_dim[0] * prev_node)
+                prev_node = fc * filter_shape_list[conv_i][FH] * filter_shape_list[conv_i][FW] 
+                pre_node_num.append(prev_node) #cnn에서는 이미지 블록 한개의 크기  --> 가중치의 개수
+                
+
+                out_h = (out_h + 2*filter_shape_list[conv_i][PAD] - filter_shape_list[conv_i][FH]) // filter_shape_list[conv_i][STRIDE] + 1  
+                out_w = (out_w + 2*filter_shape_list[conv_i][PAD] - filter_shape_list[conv_i][FW]) // filter_shape_list[conv_i][STRIDE] + 1
                 fc = filter_shape_list[conv_i][FN]
+                prev_node = fc * out_h * out_w #출력 노드 개수
+                output_node_num.append(fc * prev_node) #전체 노드의 개수
                 conv_i += 1
             
+            if layer == 'pooling':
+                out_h = (out_h - pooling_list[pooling_i][PH]) // pooling_list[pooling_i][P_STRIDE] + 1
+                out_w = (out_w - pooling_list[pooling_i][PW]) // pooling_list[pooling_i][P_STRIDE] + 1
+                prev_node = fc * out_h * out_w
+                pre_node_num.append(prev_node)
+                output_node_num.append(prev_node)
+                pooling_i += 1
+                
+
             if layer == 'affine':
                 pre_node_num.append(prev_node)
                 prev_node = hidden_layer_list[affine_i]
                 output_node_num.append(hidden_layer_list[affine_i])
                 affine_i += 1
+
+        pre_node_num = np.array(pre_node_num)
 
         if weight_init_std.lower() in ('relu', 'he'):
             weight_init_scale = np.sqrt(2.0 / pre_node_num)
@@ -99,25 +112,31 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         pre_channel_num = input_dim[-3] #입력과 필터의 채널 수는 동일해야 함함
         conv_i = 0
         affine_i = 0
-        prev_node = 0
+        pooling_i = 0
+        prev_node = 1
         hidden_layer_list.append(output_size)
-        for input_slice in input_dim: prev_node += input_slice
+        for input_slice in input_dim: prev_node *= input_slice
 
         for layer in layer_list:
             idx  = conv_i + affine_i
+            total_idx = idx + pooling_i
 
             if layer == 'conv':
                 self.params[f"W{idx+1}"] = weight_init_scale[idx] * np.random.randn(
                     filter_shape_list[conv_i][FN], pre_channel_num, filter_shape_list[conv_i][FH], filter_shape_list[conv_i][FW]) #필터 크기 (FN, C, FH, FW)
                 self.params[f"b{idx+1}"] = np.zeros(filter_shape_list[conv_i][FN]) #완전 연결 계층에서 출력층 노드에 한개씩 편향 적용 한 것처럼 필터 한개당 한개의 편향 적용
                 
-                prev_node = pre_node_num[conv_i]*filter_shape_list[FN]
+                prev_node = int(pre_node_num[conv_i])*filter_shape_list[conv_i][FN]
                 pre_channel_num = filter_shape_list[conv_i][FN]
 
                 conv_i += 1
 
+            if layer == 'pooling':
+                prev_node = int(pre_node_num[total_idx])
+                pooling_i += 1
+
             if layer == 'affine':
-                self.params[f"W{idx+1}"] = weight_init_scale[idx * np.random.randn(pre_node_num ,hidden_layer_list[affine_i])]
+                self.params[f"W{idx+1}"] = weight_init_scale[idx] * np.random.randn(prev_node ,hidden_layer_list[affine_i])
                 self.params[f'b{idx+1}'] = np.zeros(hidden_layer_list[affine_i])
                 prev_node = hidden_layer_list[affine_i]
                 affine_i += 1
@@ -131,13 +150,14 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         layer_with_weight = 0
 
         for layer in layer_list:
-            
+
             if layer == 'softmax':
-                self.last_layer = self.layers.pop() #Softmax층은 역전파시에만 활용하기 때문에 따로 제외
+                self.last_layer = SoftmaxWithLoss()#Softmax층은 역전파시에만 활용하기 때문에 따로 제외
+                break
 
             if layer in self.activation_function.keys():
-                self.layers[f'activation_function{layer_with_weight}'] = self.activation_function[layer]()
-            
+                self.layers[f'activation_function{layer_with_weight}'] = self.activation_function[layer]() 
+
             if layer == "pooling":
                 pooling_size = pooling_list.pop()
                 self.layers[f'pooling{layer_with_weight}'] = Pooling(pooling_size[0], pooling_size[1], pooling_size[2])
@@ -147,7 +167,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
 
             if layer in self.layer_type.keys():
                 layer_with_weight += 1
-                self.layers[layer+str(layer_with_weight)] = self.layer_type(self.params[f'W{layer_with_weight}'],self.params[f'b{layer_with_weight}']) 
+                self.layers[layer+str(layer_with_weight)] = self.layer_type[layer](self.params[f'W{layer_with_weight}'], self.params[f'b{layer_with_weight}']) 
 
                 if self.use_batchnorm:
                     output_node = output_node_num.pop()
@@ -172,6 +192,8 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
                 x = layer.forward(x, train_flg)
             else:
                 x = layer.forward(x)
+            
+        return x
 
     def loss(self, x, t, train_flg = False): #수정할것 태스트 동작후에
         y = self.predict(x, train_flg)
@@ -209,12 +231,20 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
 
         # 결과 저장
         grads = {}
-        for idx in range(1, self.hidden_layer_num+2):
-            grads['W' + str(idx)] = self.layers['Affine' + str(idx)].dW + self.weight_decay_lambda * self.params['W' + str(idx)]
-            grads['b' + str(idx)] = self.layers['Affine' + str(idx)].db
+        conv_i = 0
+        affine_i = 0
+        for layer in self.layers:
+            idx = conv_i + affine_i
 
-            if self.use_batchnorm and idx != self.hidden_layer_num+1:
-                grads['gamma' + str(idx)] = self.layers['BatchNorm' + str(idx)].dgamma
-                grads['beta' + str(idx)] = self.layers['BatchNorm' + str(idx)].dbeta
+            if layer == 'conv':
+                grads[f'W{idx+1}'] = self.layers[f'conv{conv_i}'].dW + self.weight_decay_lambda * self.params[f'W{idx+1}']
+                grads[f'W{idx+1}'] = self.layers[f'conv{conv_i}'].db
 
+            if layer == 'affine':
+                grads[f'W{idx+1}'] = self.layers[f'affine{conv_i}'].dW + self.weight_decay_lambda * self.params[f'W{idx+1}']
+                grads[f'W{idx+1}'] = self.layers[f'affine{conv_i}'].db
+
+            if self.use_batchnorm and layer != 'softmax':
+                grads['gamma' + str(idx +1)] = self.layers['BatchNorm' + str(idx+1)].dgamma
+                grads['beta' + str(idx+1)] = self.layers['BatchNorm' + str(idx+1)].dbeta
         return grads
