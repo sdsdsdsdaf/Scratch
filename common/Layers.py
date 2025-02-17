@@ -10,7 +10,7 @@ from common.util import im2col, col2im
 
 
 class Relu:
-    def __init__(self):
+    def __init__(self, precision = np.float64):
         self.mask = None
 
     def forward(self, x):
@@ -28,13 +28,14 @@ class Relu:
 
 
 class Sigmoid:
-    def __init__(self):
+    def __init__(self, precision = np.float64):
         self.out = None
+        self.precision = precision
 
     def forward(self, x):
         out = sigmoid(x)
         self.out = out
-        return out
+        return out.astype(self.precision)
 
     def backward(self, dout):
         dx = dout * (1.0 - self.out) * self.out
@@ -43,9 +44,10 @@ class Sigmoid:
 
 
 class Affine:
-    def __init__(self, W, b):
+    def __init__(self, W, b, precision = np.float64):
         self.W = W
         self.b = b
+        self.precision = precision
         
         self.x = None
         self.original_x_shape = None
@@ -66,14 +68,14 @@ class Affine:
     def backward(self, dout):
         dx = np.dot(dout, self.W.T)
         self.dW = np.dot(self.x.T, dout)
-        self.db = np.sum(dout, axis=0)
+        self.db = np.sum(dout, axis=0, dtype=self.precision)
         
         dx = dx.reshape(*self.original_x_shape)  # 입력 데이터 모양 변경(텐서 대응)
         return dx
 
 
 class SoftmaxWithLoss:
-    def __init__(self):
+    def __init__(self, precision=np.float64):
         self.loss = None # 손실함수
         self.y = None    # softmax의 출력
         self.t = None    # 정답 레이블(원-핫 인코딩 형태)
@@ -101,13 +103,13 @@ class Dropout:
     """
     http://arxiv.org/abs/1207.0580
     """
-    def __init__(self, dropout_ratio=0.5):
+    def __init__(self, dropout_ratio=0.5, precision = np.float64):
         self.dropout_ratio = dropout_ratio
         self.mask = None
-
+        self.precision = precision
     def forward(self, x, train_flg=True):
         if train_flg:
-            self.mask = np.random.rand(*x.shape) > self.dropout_ratio
+            self.mask = np.random.rand(*x.shape, dtype=self.precision) > self.dropout_ratio
             return x * self.mask  
         else:
             return x * (1.0 - self.dropout_ratio)
@@ -120,7 +122,7 @@ class BatchNormalization:
     """
     http://arxiv.org/abs/1502.03167
     """
-    def __init__(self, gamma, beta, momentum=0.9, running_mean=None, running_var=None): #gamma외 beta가 affine 계층에서의 가중치 역할 rX + b
+    def __init__(self, gamma, beta, momentum=0.9, running_mean=None, running_var=None, precision = np.float64): #gamma외 beta가 affine 계층에서의 가중치 역할 rX + b
         self.gamma = gamma
         self.beta = beta
         self.momentum = momentum
@@ -136,6 +138,7 @@ class BatchNormalization:
         self.std = None
         self.dgamma = None
         self.dbeta = None
+        self.precision = precision
 
     def forward(self, x, train_flg=True):
         self.input_shape = x.shape
@@ -150,14 +153,14 @@ class BatchNormalization:
     def __forward(self, x, train_flg):
         if self.running_mean is None:
             N, D = x.shape
-            self.running_mean = np.zeros(D) #각각의 노드들마다 이동평균이 한개씩 존재 cnn에서는 한개의 점마다
-            self.running_var = np.zeros(D)
+            self.running_mean = np.zeros(D, dtype=self.precision) #각각의 노드들마다 이동평균이 한개씩 존재 cnn에서는 한개의 점마다
+            self.running_var = np.zeros(D, dtype=self.precision)
                         
         if train_flg:
             mu = x.mean(axis=0)
             xc = x - mu
-            var = np.mean(xc**2, axis=0)
-            std = np.sqrt(var + 10e-7)
+            var = np.mean(xc**2, axis=0, dtype=self.precision)
+            std = np.sqrt(var + 10e-7, dtype=self.precision)
             xn = xc / std
             
             self.batch_size = x.shape[0]
@@ -168,7 +171,7 @@ class BatchNormalization:
             self.running_var = self.momentum * self.running_var + (1-self.momentum) * var            
         else:
             xc = x - self.running_mean
-            xn = xc / ((np.sqrt(self.running_var + 10e-7)))
+            xn = xc / ((np.sqrt(self.running_var + 10e-7, dtype = self.precision)))
             
         out = self.gamma * xn + self.beta 
         return out
@@ -185,13 +188,13 @@ class BatchNormalization:
 
     def __backward(self, dout):
         dbeta = dout.sum(axis=0)
-        dgamma = np.sum(self.xn * dout, axis=0)
+        dgamma = np.sum(self.xn * dout, axis=0, dtype=self.precision)
         dxn = self.gamma * dout
         dxc = dxn / self.std
-        dstd = -np.sum((dxn * self.xc) / (self.std * self.std), axis=0)
+        dstd = -np.sum((dxn * self.xc) / (self.std * self.std), axis=0, dtype=self.precision)
         dvar = 0.5 * dstd / self.std
         dxc += (2.0 / self.batch_size) * self.xc * dvar
-        dmu = np.sum(dxc, axis=0)
+        dmu = np.sum(dxc, axis=0, dtype=self.precision)
         dx = dxc - dmu / self.batch_size
         
         self.dgamma = dgamma
@@ -201,11 +204,12 @@ class BatchNormalization:
 
 
 class Convolution:
-    def __init__(self, W, b, stride=1, pad=0):
+    def __init__(self, W, b, stride=1, pad=0,precision = np.float64):
         self.W = W
         self.b = b
         self.stride = stride
         self.pad = pad
+        self.precision = precision
         
         # 중간 데이터（backward 시 사용）
         self.x = None   
@@ -222,7 +226,7 @@ class Convolution:
         out_h = 1 + int((H + 2*self.pad - FH) / self.stride)
         out_w = 1 + int((W + 2*self.pad - FW) / self.stride)
 
-        col = im2col(x, FH, FW, self.stride, self.pad)
+        col = im2col(x, FH, FW, self.stride, self.pad, precision=self.precision)
         col_W = self.W.reshape(FN, -1).T
 
         out = np.dot(col, col_W) + self.b
@@ -238,23 +242,24 @@ class Convolution:
         FN, C, FH, FW = self.W.shape
         dout = dout.transpose(0,2,3,1).reshape(-1, FN)
 
-        self.db = np.sum(dout, axis=0)
+        self.db = np.sum(dout, axis=0, dtype=self.precision)
         self.dW = np.dot(self.col.T, dout)
         self.dW = self.dW.transpose(1, 0).reshape(FN, C, FH, FW)
 
         dcol = np.dot(dout, self.col_W.T)
-        dx = col2im(dcol, self.x.shape, FH, FW, self.stride, self.pad)
+        dx = col2im(dcol, self.x.shape, FH, FW, self.stride, self.pad, precision=self.precision)
 
         return dx
 
 
 class Pooling:
-    def __init__(self, pool_h, pool_w, stride=1, pad=0):
+    def __init__(self, pool_h, pool_w, stride=1, pad=0, precision=np.float64):
         self.pool_h = pool_h
         self.pool_w = pool_w
         self.stride = stride
         self.pad = pad
-        
+        self.precision = precision
+
         self.x = None
         self.arg_max = None
 
@@ -263,7 +268,7 @@ class Pooling:
         out_h = int(1 + (H - self.pool_h) / self.stride)
         out_w = int(1 + (W - self.pool_w) / self.stride)
 
-        col = im2col(x, self.pool_h, self.pool_w, self.stride, self.pad)
+        col = im2col(x, self.pool_h, self.pool_w, self.stride, self.pad, precision=self.precision)
         col = col.reshape(-1, self.pool_h*self.pool_w)
 
         arg_max = np.argmax(col, axis=1)
@@ -279,12 +284,12 @@ class Pooling:
         dout = dout.transpose(0, 2, 3, 1)
         
         pool_size = self.pool_h * self.pool_w
-        dmax = np.zeros((dout.size, pool_size))
+        dmax = np.zeros((dout.size, pool_size), dtype=self.precision)
         dmax[np.arange(self.arg_max.size), self.arg_max.flatten()] = dout.flatten()
         dmax = dmax.reshape(dout.shape + (pool_size,)) 
         
         dcol = dmax.reshape(dmax.shape[0] * dmax.shape[1] * dmax.shape[2], -1)
-        dx = col2im(dcol, self.x.shape, self.pool_h, self.pool_w, self.stride, self.pad)
+        dx = col2im(dcol, self.x.shape, self.pool_h, self.pool_w, self.stride, self.pad, precision=self.precision)
         
         return dx
 

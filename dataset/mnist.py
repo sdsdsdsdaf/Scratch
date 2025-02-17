@@ -91,7 +91,7 @@ def _change_one_hot_label(X):
 
     return T
 
-def load_mnist(normalize=True, flatten=True, one_hot_label=False):
+def load_mnist(normalize=True, flatten=True, one_hot_label=False, precision=np.float64):
     """MNIST 데이터셋 읽기
     
     Parameters
@@ -115,7 +115,7 @@ def load_mnist(normalize=True, flatten=True, one_hot_label=False):
 
     if normalize:
         for key in ('train_img', 'test_img'):
-            dataset[key] = dataset[key].astype(np.float64)
+            dataset[key] = dataset[key].astype(precision)
             dataset[key] /= 255.0
 
 

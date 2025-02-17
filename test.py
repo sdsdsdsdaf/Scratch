@@ -30,6 +30,13 @@ if __name__ == "__main__":
     mydic = OrderedDict()
     mydic.update({'1': 1, '2':2})
 
-    key = input('입력하세요')
-    key = key.lower()
-    print(key in ('dropout', 'batchnorm'))
+    for d in mydic:
+        print(d)
+
+
+from tqdm import tqdm
+import pickle as pkl
+import time
+file_name = 'test.pkl'
+
+tqdm

@@ -4,6 +4,7 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__)))) # �
 import cupy as np  
 from collections import OrderedDict
 from common.layers import *
+import pickle
 
 FN, C,FH, FW, PAD, STRIDE = 0, 1, 2, 3, 4, 5
 PH, PW, P_STRIDE = 0, 1, 2
@@ -31,7 +32,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
     """
     def __init__(self, input_dim = (1, 28, 28), layer_list = ['conv', 'relu', 'pooling', 'affine', 'relu', 'affine', 'softmax'], #여기서 relu, softmax, pooling은 가중치가 없는 계층
                  filter_shape_list = [[30, 1, 5, 5, 0, 1]], hidden_layer_list = [100,100], pooling_list = [[2, 2, 2], [2,2,2]], output_size = 10, activation = "ReLu", weight_init_std = 'ReLu', weight_decay_lambda=0,
-                 use_dropout = False, dropout_ration = 0.5, use_batch_norm=False):
+                 use_dropout = False, dropout_ration = 0.5, use_batch_norm=False, precision = np.float64):
         layer_list = [layer.lower() for layer in layer_list ]
         try:
             assert layer_list.count('conv') == len(filter_shape_list), "Not match Convulution Layer`s numer and filter layer Number"
@@ -54,6 +55,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         self.use_dropout = use_dropout
         self.dropout_ration = dropout_ration
         self.weight_decay_lambda = weight_decay_lambda
+        self.precision = precision
 
         conv_parm = []
         for filter_shape in filter_shape_list:
@@ -102,9 +104,9 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         pre_node_num = np.array(pre_node_num)
 
         if weight_init_std.lower() in ('relu', 'he'):
-            weight_init_scale = np.sqrt(2.0 / pre_node_num)
+            weight_init_scale = np.sqrt(2.0 / pre_node_num, dtype=self.precision)
         if   weight_init_std.lower() in ('sigmoid', 'he'):
-            weight_init_scale = np.sqrt(1.0 / pre_node_num)
+            weight_init_scale = np.sqrt(1.0 / pre_node_num, dtype=self.precision)
 
 
         #가중치 초기화
@@ -123,8 +125,8 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
 
             if layer == 'conv':
                 self.params[f"W{idx+1}"] = weight_init_scale[idx] * np.random.randn(
-                    filter_shape_list[conv_i][FN], pre_channel_num, filter_shape_list[conv_i][FH], filter_shape_list[conv_i][FW]) #필터 크기 (FN, C, FH, FW)
-                self.params[f"b{idx+1}"] = np.zeros(filter_shape_list[conv_i][FN]) #완전 연결 계층에서 출력층 노드에 한개씩 편향 적용 한 것처럼 필터 한개당 한개의 편향 적용
+                    filter_shape_list[conv_i][FN], pre_channel_num, filter_shape_list[conv_i][FH], filter_shape_list[conv_i][FW], dtype=self.precision) #필터 크기 (FN, C, FH, FW)
+                self.params[f"b{idx+1}"] = np.zeros(filter_shape_list[conv_i][FN], dtype=self.precision) #완전 연결 계층에서 출력층 노드에 한개씩 편향 적용 한 것처럼 필터 한개당 한개의 편향 적용
                 
                 prev_node = int(pre_node_num[conv_i])*filter_shape_list[conv_i][FN]
                 pre_channel_num = filter_shape_list[conv_i][FN]
@@ -136,8 +138,8 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
                 pooling_i += 1
 
             if layer == 'affine':
-                self.params[f"W{idx+1}"] = weight_init_scale[idx] * np.random.randn(prev_node ,hidden_layer_list[affine_i])
-                self.params[f'b{idx+1}'] = np.zeros(hidden_layer_list[affine_i])
+                self.params[f"W{idx+1}"] = weight_init_scale[idx] * np.random.randn(prev_node ,hidden_layer_list[affine_i], dtype = self.precision)
+                self.params[f'b{idx+1}'] = np.zeros(hidden_layer_list[affine_i], dtype = self.precision)
                 prev_node = hidden_layer_list[affine_i]
                 affine_i += 1
 
@@ -152,35 +154,35 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         for layer in layer_list:
 
             if layer == 'softmax':
-                self.last_layer = SoftmaxWithLoss()#Softmax층은 역전파시에만 활용하기 때문에 따로 제외
+                self.last_layer = SoftmaxWithLoss(precision=self.precision)#Softmax층은 역전파시에만 활용하기 때문에 따로 제외
                 break
 
             if layer in self.activation_function.keys():
-                self.layers[f'activation_function{layer_with_weight}'] = self.activation_function[layer]() 
+                self.layers[f'activation_function{layer_with_weight}'] = self.activation_function[layer](precision = self.precision) 
 
             if layer == "pooling":
                 pooling_size = pooling_list.pop()
-                self.layers[f'pooling{layer_with_weight}'] = Pooling(pooling_size[0], pooling_size[1], pooling_size[2])
+                self.layers[f'pooling{layer_with_weight}'] = Pooling(pooling_size[0], pooling_size[1], pooling_size[2], precision=self.precision)
 
             if layer == 'dropout':
-                self.layers[f'dropout{layer_with_weight}'] = Dropout()
+                self.layers[f'dropout{layer_with_weight}'] = Dropout(precision=self.precision)
 
             if layer in self.layer_type.keys():
                 layer_with_weight += 1
-                self.layers[layer+str(layer_with_weight)] = self.layer_type[layer](self.params[f'W{layer_with_weight}'], self.params[f'b{layer_with_weight}']) 
+                self.layers[layer+str(layer_with_weight)] = self.layer_type[layer](self.params[f'W{layer_with_weight}'], self.params[f'b{layer_with_weight}'],precision=self.precision) 
 
                 if self.use_batchnorm:
                     output_node = output_node_num.pop()
-                    self.params[f'gamma{layer_with_weight}'] = np.ones(output_node)
-                    self.params[f'beta{layer_with_weight}'] = np.zeros(output_node)
-                    self.layers[f'batchNorm{layer_with_weight}'] = BatchNormalization(self.params[f'gamma{layer_with_weight}'], self.params[f'beta{layer_with_weight}'])
+                    self.params[f'gamma{layer_with_weight}'] = np.ones(output_node, dtype = self.precision)
+                    self.params[f'beta{layer_with_weight}'] = np.zeros(output_node, dtype = self.precision)
+                    self.layers[f'batchnorm{layer_with_weight}'] = BatchNormalization(self.params[f'gamma{layer_with_weight}'], self.params[f'beta{layer_with_weight}'])
 
                 if self.use_dropout:
                     self.layers[f'dropout{layer_with_weight}'] = Dropout(self.dropout_ration)
 
         self.layer_with_weight_num = layer_with_weight
 
-        self.layers.pop(f'batchNorm{layer_with_weight}', None) #출력층에서는 배치정규화를 시행하지 않음 모델의 표현력 때문에
+        self.layers.pop(f'batchnorm{layer_with_weight}', None) #출력층에서는 배치정규화를 시행하지 않음 모델의 표현력 때문에
         self.params.pop(f'gamma{layer_with_weight}', None) #딕셔너리의 pop메서드는 pop(not in dictionray key, Argu1) -> return Argu1
         self.params.pop(f'beta{layer_with_weight}', None)
 
@@ -204,7 +206,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
             if layer in self.layer_type.keys():
                 W = self.params[f'W{idx}']
                 idx += 1
-                weight_decay += 0.5 *self.weight_decay_lambda * np.sum(W**2)
+                weight_decay += 0.5 *self.weight_decay_lambda * np.sum(W**2, dtype=self.precision)
 
         return self.last_layer.forward(y, t) + weight_decay
     
@@ -231,20 +233,43 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
 
         # 결과 저장
         grads = {}
-        conv_i = 0
-        affine_i = 0
-        for layer in self.layers:
-            idx = conv_i + affine_i
+        idx = 1
+        for layer in self.layers.keys():
 
-            if layer == 'conv':
-                grads[f'W{idx+1}'] = self.layers[f'conv{conv_i}'].dW + self.weight_decay_lambda * self.params[f'W{idx+1}']
-                grads[f'W{idx+1}'] = self.layers[f'conv{conv_i}'].db
+            if 'conv' in layer or 'affine' in layer:
+                grads[f'W{idx}'] = self.layers[layer].dW + self.weight_decay_lambda * self.params[f'W{idx}']
+                grads[f'b{idx}'] = self.layers[layer].db
+                idx += 1
 
-            if layer == 'affine':
-                grads[f'W{idx+1}'] = self.layers[f'affine{conv_i}'].dW + self.weight_decay_lambda * self.params[f'W{idx+1}']
-                grads[f'W{idx+1}'] = self.layers[f'affine{conv_i}'].db
-
-            if self.use_batchnorm and layer != 'softmax':
-                grads['gamma' + str(idx +1)] = self.layers['BatchNorm' + str(idx+1)].dgamma
-                grads['beta' + str(idx+1)] = self.layers['BatchNorm' + str(idx+1)].dbeta
+            if self.use_batchnorm and 'softmax' in layer:
+                grads['gamma' + str(idx +1)] = self.layers['batchborm' + str(idx-1)].dgamma
+                grads['beta' + str(idx+1)] = self.layers['batchborm' + str(idx-1)].dbeta
         return grads
+
+
+    def save_params(self, file_name="params.pkl"):
+        params = {}
+        for key, val in self.params.items():
+            params[key] = val
+        with open(file_name, 'wb') as f:
+            pickle.dump(params, f)
+
+    def load_params(self, file_name="params.pkl"):
+        with open(file_name, 'rb') as f:
+            params = pickle.load(f)
+        for key, val in params.items():
+            self.params[key] = val
+
+        layer_num_with_weight = 0
+        for layer_name, layer in self.layers.items():
+            if 'conv' in layer_name or 'affine' in layer_name:
+                layer.W = self.params['W' + str(layer_num_with_weight+1)]
+                layer.b = self.params['b' + str(layer_num_with_weight+1)]
+
+                layer_num_with_weight += 1
+            
+            if 'batchnorm' in layer_name.lower():
+                layer.gamma = self.params[f'gamma{layer_num_with_weight}']
+                layer.beta = self.params[f'beta{layer_num_with_weight}']
+
+        print("Complete load Params data")

@@ -36,7 +36,7 @@ def conv_output_size(input_size, filter_size, stride=1, pad=0):
     return (input_size + 2*pad - filter_size) / stride + 1
 
 
-def im2col(input_data, filter_h, filter_w, stride=1, pad=0):
+def im2col(input_data, filter_h, filter_w, stride=1, pad=0, precision=np.float64):
     """다수의 이미지를 입력받아 2차원 배열로 변환한다(평탄화).
     
     Parameters
@@ -56,7 +56,7 @@ def im2col(input_data, filter_h, filter_w, stride=1, pad=0):
     out_w = (W + 2*pad - filter_w)//stride + 1
 
     img = np.pad(input_data, [(0,0), (0,0), (pad, pad), (pad, pad)], 'constant') #맨 앞의 (0,0)은 데이터 블록을 1개의 워소로 보았을 때 한줄의 벡터가 되므로 좌우에 얼마나 패딩을 할것인지 
-    col = np.zeros((N, C, filter_h, filter_w, out_h, out_w))                     # 2번째 (0,0)은 각 데이터 블록 내에서 1개의 이미지를 원소로 보았을 때 좌우에 얼마나 패딩을 할 것이지지
+    col = np.zeros((N, C, filter_h, filter_w, out_h, out_w), dtype = precision)                 # 2번째 (0,0)은 각 데이터 블록 내에서 1개의 이미지를 원소로 보았을 때 좌우에 얼마나 패딩을 할 것이지지
 
     for y in range(filter_h):
         y_max = y + stride*out_h #n번째 시도에서의 필터의(w, h)원소에 대응하는 원소의 위치 -> 거의 끝까지
@@ -68,7 +68,7 @@ def im2col(input_data, filter_h, filter_w, stride=1, pad=0):
     return col
 
 
-def col2im(col, input_shape, filter_h, filter_w, stride=1, pad=0):
+def col2im(col, input_shape, filter_h, filter_w, stride=1, pad=0, precision = np.float64):
     """(im2col과 반대) 2차원 배열을 입력받아 다수의 이미지 묶음으로 변환한다.
     
     Parameters     
@@ -89,7 +89,7 @@ def col2im(col, input_shape, filter_h, filter_w, stride=1, pad=0):
     out_w = (W + 2*pad - filter_w)//stride + 1
     col = col.reshape(N, out_h, out_w, C, filter_h, filter_w).transpose(0, 3, 4, 5, 1, 2)
 
-    img = np.zeros((N, C, H + 2*pad + stride - 1, W + 2*pad + stride - 1))
+    img = np.zeros((N, C, H + 2*pad + stride - 1, W + 2*pad + stride - 1), dtype=precision)
     for y in range(filter_h):
         y_max = y + stride*out_h
         for x in range(filter_w):

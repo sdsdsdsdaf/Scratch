@@ -8,17 +8,17 @@ from dataset.mnist import load_mnist
 from CH7.MultiCNN import MultiCNN
 from common.trainer import Trainer
 
-(x_train, t_train), (x_test, t_test) = load_mnist(flatten=False, normalize=True)
+(x_train, t_train), (x_test, t_test) = load_mnist(flatten=False, normalize=True, precision=np.float16)
 
 # 드롭아웃 사용 유무와 비울 설정 ========================
 use_dropout = True  # 드롭아웃을 쓰지 않을 때는 False
 dropout_ratio = 0.2
 # ====================================================
-
-network = MultiCNN()
+ 
+network = MultiCNN(precision=np.float32)
 
 trainer = Trainer(network, x_train, t_train, x_test, t_test,
-                  epochs=100, mini_batch_size=100, optimizer='sgd', verbose=True )
+                  epochs=100, mini_batch_size=10, optimizer='sgd', verbose=False , precision=np.float32)
 
 trainer.train()
 

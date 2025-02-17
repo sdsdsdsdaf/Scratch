@@ -6,6 +6,8 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))  # 
 import cupy as np
 from common.optimizer import *
 import time
+from tqdm import tqdm
+import pickle as pkl
 
 class Trainer:
     """신경망 훈련을 대신 해주는 클래스
@@ -13,7 +15,7 @@ class Trainer:
     def __init__(self, network, x_train, t_train, x_test, t_test,
                  epochs=20, mini_batch_size=100,
                  optimizer='SGD', optimizer_param={'lr':0.01}, 
-                 evaluate_sample_num_per_epoch=None, verbose=True):
+                 evaluate_sample_num_per_epoch=None, verbose=True, precision = np.float64):
         self.network = network
         self.verbose = verbose
         self.x_train = x_train
@@ -23,10 +25,11 @@ class Trainer:
         self.epochs = epochs
         self.batch_size = mini_batch_size
         self.evaluate_sample_num_per_epoch = evaluate_sample_num_per_epoch #샘플로 평가 진행할 시
-
+        self.precision = precision
         # optimzer
         optimizer_class_dict = {'sgd':SGD, 'momentum':Momentum, 'nesterov':Nesterov,
                                 'adagrad':AdaGrad, 'rmsprpo':RMSprop, 'adam':Adam}
+        optimizer_param['precision'] = self.precision
         self.optimizer = optimizer_class_dict[optimizer.lower()](**optimizer_param)
         
         self.train_size = x_train.shape[0]
@@ -46,8 +49,6 @@ class Trainer:
         x_batch = self.x_train[batch_mask]
         t_batch = self.t_train[batch_mask]
 
-        self.verbose = self.current_epoch % 10 == 0 and not self.current_epoch == 0 
-
         grads = self.network.gradient(x_batch, t_batch)
         self.optimizer.update(self.network.params, grads)
         
@@ -55,7 +56,7 @@ class Trainer:
         self.train_loss_list.append(loss)
         if self.verbose: print("train loss:" + str(loss))
         
-        if self.current_iter % self.iter_per_epoch == 0: #1에폭당 평가
+        if self.current_iter % self.iter_per_epoch == 0 and not self.current_iter == 0: #1에폭당 평가
             self.current_epoch += 1
             
             x_train_sample, t_train_sample = self.x_train, self.t_train
@@ -70,17 +71,59 @@ class Trainer:
             self.train_acc_list.append(train_acc)
             self.test_acc_list.append(test_acc)
 
-            if self.verbose:
+            if self.verbose and self.current_epoch % 10 == 0 and not self.current_epoch == 0 :
                 spend_time = time.time() - self.start_time
                 print("=== epoch:" + str(self.current_epoch) + ", train acc:" + str(train_acc) + ", test acc:" + str(test_acc) +", time per epoch:" + str(round(spend_time, 4)) +" ===")
                 self.start_time = time.time()
         self.current_iter += 1
 
-    def train(self):
+    def save_acc_list(self, file_name='Acc_List.pkl'):
+        save_file = {'test': self.test_acc_list, 'train': self.train_acc_list}
+        with open(file_name, 'wb') as f:
+            pkl.dump(save_file, f)
         
+    def load_acc_list(self, file_name='Acc_List.pkl'):
+        with open(file_name, 'rb') as f:
+            save_file = pkl.load(f)
+            self.test_acc_list = save_file['train']
+            self.train_acc_list = save_file['test']
+
+        print("Complete load Acc List")
+
+    def train(self, frequency_of_save = 5000):
+        start = 0
+        params_file_name = 'params.pkl'
+        iter_num_file_name = 'iter_num.pkl'
+        acc_list_file_name = 'Acc List.pkl'
+        if os.path.exists(params_file_name):
+            self.network.load_params(params_file_name)
+
+        if os.path.exists(iter_num_file_name):
+            with open(iter_num_file_name, 'rb') as f:
+                start = pkl.load(f)
+                print(f"Proceing Iter Num is {start}")
+
+        if os.path.exists(acc_list_file_name):
+            self.load_acc_list(acc_list_file_name)
+
         self.start_time = time.time()
-        for _ in range(self.max_iter):
+
+        
+
+        for idx in tqdm(range(0, self.max_iter), initial=start):
+                
+            if start + idx >= self.max_iter:
+                break
+
             self.train_step()
+
+            if (start + idx) % frequency_of_save == 0 and not idx == 0:
+                self.network.save_params(params_file_name)
+                self.save_acc_list(acc_list_file_name)
+                
+                with open(iter_num_file_name, 'wb') as f:
+                    pkl.dump(start + idx, f)
+        pbar.close()
 
         test_acc = self.network.accuracy(self.x_test, self.t_test)
 
