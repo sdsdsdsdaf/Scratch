@@ -20,8 +20,11 @@ if __name__ == "__main__":
     layer_list = ['CONV', 'relu', 'pooling', 'affine', 'Relu', 'Affine', 'softmax']
 
     layer_list = [layer.lower() for layer in layer_list ]
-    
+    y = np.zeros((1,5))
+    b = np.array([[2,4,5,6,7]])
 
+    c = np.concatenate((y, b), 0)
+    c = np.delete(c,0, 0)
     li = [1,2,3,4]
     dic = {}
     for idx, ele in enumerate(li):

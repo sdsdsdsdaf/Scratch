@@ -5,6 +5,7 @@ import cupy as np
 from collections import OrderedDict
 from common.layers import *
 import pickle
+from collections import deque
 
 FN, C,FH, FW, PAD, STRIDE = 0, 1, 2, 3, 4, 5
 PH, PW, P_STRIDE = 0, 1, 2
@@ -31,12 +32,12 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
     use_batchNorm : 배치 정규화 사용 여부
     """
     def __init__(self, input_dim = (1, 28, 28), layer_list = ['conv', 'relu', 'pooling', 'affine', 'relu', 'affine', 'softmax'], #여기서 relu, softmax, pooling은 가중치가 없는 계층
-                 filter_shape_list = [[30, 1, 5, 5, 0, 1]], hidden_layer_list = [100,100], pooling_list = [[2, 2, 2], [2,2,2]], output_size = 10, activation = "ReLu", weight_init_std = 'ReLu', weight_decay_lambda=0,
+                 filter_shape_list = [[30, 1, 5, 5, 0, 1]], hidden_layer_list = [100], pooling_list = [[2, 2, 2], [2,2,2]], output_size = 10, activation = "ReLu", weight_init_std = 'ReLu', weight_decay_lambda=0,
                  use_dropout = False, dropout_ration = 0.5, use_batch_norm=False, precision = np.float64):
         layer_list = [layer.lower() for layer in layer_list ]
         try:
             assert layer_list.count('conv') == len(filter_shape_list), "Not match Convulution Layer`s numer and filter layer Number"
-            assert layer_list.count('affine') == len(hidden_layer_list), "Not match Hidden Layer`s number and hidden layer list num"
+            assert layer_list.count('affine') == len(hidden_layer_list) + 1, "Not match Hidden Layer`s number and hidden layer list num"
             assert layer_list[-1] in ('softmax', 'identity'), "Output Layer`s activation function must be 'Softmax' or 'Identity function'"
             assert activation.lower() in ('relu', 'sigmoid'), "Not implement exclude relu and sigmoid activation function" 
             assert weight_init_std.lower() in ('relu', 'sigmoid', 'he', 'xavier'), "Not implement exclude relu and sigmoid activation function" 
@@ -56,6 +57,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         self.dropout_ration = dropout_ration
         self.weight_decay_lambda = weight_decay_lambda
         self.precision = precision
+        self.output_size = output_size
 
         conv_parm = []
         for filter_shape in filter_shape_list:
@@ -70,8 +72,9 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         conv_i = 0
         affine_i = 0
         pooling_i = 0
-        output_node_num = []
-
+        output_node_num = deque()
+        
+        hidden_layer_list.append(output_size)
 
         for layer in layer_list:
             if layer == 'conv':
@@ -82,8 +85,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
                 out_h = (out_h + 2*filter_shape_list[conv_i][PAD] - filter_shape_list[conv_i][FH]) // filter_shape_list[conv_i][STRIDE] + 1  
                 out_w = (out_w + 2*filter_shape_list[conv_i][PAD] - filter_shape_list[conv_i][FW]) // filter_shape_list[conv_i][STRIDE] + 1
                 fc = filter_shape_list[conv_i][FN]
-                prev_node = fc * out_h * out_w #출력 노드 개수
-                output_node_num.append(fc * prev_node) #전체 노드의 개수
+                output_node_num.append(fc * out_h * out_w) #전체 노드의 개수
                 conv_i += 1
             
             if layer == 'pooling':
@@ -91,7 +93,6 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
                 out_w = (out_w - pooling_list[pooling_i][PW]) // pooling_list[pooling_i][P_STRIDE] + 1
                 prev_node = fc * out_h * out_w
                 pre_node_num.append(prev_node)
-                output_node_num.append(prev_node)
                 pooling_i += 1
                 
 
@@ -116,7 +117,6 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
         affine_i = 0
         pooling_i = 0
         prev_node = 1
-        hidden_layer_list.append(output_size)
         for input_slice in input_dim: prev_node *= input_slice
 
         for layer in layer_list:
@@ -172,17 +172,17 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
                 self.layers[layer+str(layer_with_weight)] = self.layer_type[layer](self.params[f'W{layer_with_weight}'], self.params[f'b{layer_with_weight}'],precision=self.precision) 
 
                 if self.use_batchnorm:
-                    output_node = output_node_num.pop()
+                    output_node = output_node_num.popleft()
                     self.params[f'gamma{layer_with_weight}'] = np.ones(output_node, dtype = self.precision)
                     self.params[f'beta{layer_with_weight}'] = np.zeros(output_node, dtype = self.precision)
-                    self.layers[f'batchnorm{layer_with_weight}'] = BatchNormalization(self.params[f'gamma{layer_with_weight}'], self.params[f'beta{layer_with_weight}'])
+                    self.layers[f'batchnorm{layer_with_weight}'] = BatchNormalization(self.params[f'gamma{layer_with_weight}'], self.params[f'beta{layer_with_weight}'], precision=self.precision)
 
                 if self.use_dropout:
                     self.layers[f'dropout{layer_with_weight}'] = Dropout(self.dropout_ration)
 
         self.layer_with_weight_num = layer_with_weight
 
-        self.layers.pop(f'batchnorm{layer_with_weight}', None) #출력층에서는 배치정규화를 시행하지 않음 모델의 표현력 때문에
+        self.layers.pop(f'batchnorm{layer_with_weight}', None) #출력층에서는 배치정규화를 시행하지 않음 모델의 표현력 때문에 이 주석 무시
         self.params.pop(f'gamma{layer_with_weight}', None) #딕셔너리의 pop메서드는 pop(not in dictionray key, Argu1) -> return Argu1
         self.params.pop(f'beta{layer_with_weight}', None)
 
@@ -197,7 +197,7 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
             
         return x
 
-    def loss(self, x, t, train_flg = False): #수정할것 태스트 동작후에
+    def loss(self, x, t, train_flg = True): #수정할것 태스트 동작후에
         y = self.predict(x, train_flg)
 
         weight_decay = 0
@@ -210,13 +210,22 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
 
         return self.last_layer.forward(y, t) + weight_decay
     
-    def accuracy(self, X, T):
-        Y = self.predict(X, train_flg=False)
-        Y = np.argmax(Y, axis=1)
+    def accuracy(self, X, T, batch_size):
+        start = 0
+        Y = np.zeros((1, self.output_size))
+        while start + batch_size < len(X):
+            batch_x = X[start: start + batch_size]
+            Y = np.concatenate((Y, self.predict(batch_x, train_flg=False)), 0)
+            start += batch_size
+
+        if start < X.size: Y = np.concatenate((Y, self.predict(batch_x, train_flg=False)), 0)
+
         if T.ndim != 1 : T = np.argmax(T, axis=1)
 
+        Y = np.delete(Y, 0, 0)
+        Y = np.argmax(Y, axis=1)
         accuracy = np.sum(Y == T) / float(X.shape[0])
-        return accuracy
+        return float(accuracy)
     
     def gradient(self, x, t):
         # forward
@@ -239,11 +248,13 @@ class MultiCNN: #CNN으로 시작을 하지 않으면 이미지가 흐름대로 
             if 'conv' in layer or 'affine' in layer:
                 grads[f'W{idx}'] = self.layers[layer].dW + self.weight_decay_lambda * self.params[f'W{idx}']
                 grads[f'b{idx}'] = self.layers[layer].db
-                idx += 1
 
-            if self.use_batchnorm and 'softmax' in layer:
-                grads['gamma' + str(idx +1)] = self.layers['batchborm' + str(idx-1)].dgamma
-                grads['beta' + str(idx+1)] = self.layers['batchborm' + str(idx-1)].dbeta
+                if self.use_batchnorm and idx < self.layer_with_weight_num:
+                    grads['gamma' + str(idx)] = self.layers['batchnorm' + str(idx)].dgamma
+                    grads['beta' + str(idx)] = self.layers['batchnorm' + str(idx)].dbeta
+                
+                
+                idx += 1
         return grads
 
 

@@ -56,6 +56,7 @@ class Trainer:
         self.train_loss_list.append(loss)
         if self.verbose: print("train loss:" + str(loss))
         
+        # if self.current_iter % 100 == 0: # 학습 추이 파악을 위해 100번 학습당 정확도 평가
         if self.current_iter % self.iter_per_epoch == 0 and not self.current_iter == 0: #1에폭당 평가
             self.current_epoch += 1
             
@@ -66,8 +67,8 @@ class Trainer:
                 x_train_sample, t_train_sample = self.x_train[:t], self.t_train[:t] #t번째 데이터까지 잘라서 씀
                 x_test_sample, t_test_sample = self.x_test[:t], self.t_test[:t]
                 
-            train_acc = self.network.accuracy(x_train_sample, t_train_sample)
-            test_acc = self.network.accuracy(x_test_sample, t_test_sample)
+            train_acc = self.network.accuracy(x_train_sample, t_train_sample, self.batch_size)
+            test_acc = self.network.accuracy(x_test_sample, t_test_sample, self.batch_size)
             self.train_acc_list.append(train_acc)
             self.test_acc_list.append(test_acc)
 
@@ -90,7 +91,9 @@ class Trainer:
 
         print("Complete load Acc List")
 
-    def train(self, frequency_of_save = 5000):
+    def train(self, frequency_of_save=None):
+        if frequency_of_save is None:
+            frequency_of_save = self.iter_per_epoch
         start = 0
         params_file_name = 'params.pkl'
         iter_num_file_name = 'iter_num.pkl'
@@ -123,9 +126,14 @@ class Trainer:
                 
                 with open(iter_num_file_name, 'wb') as f:
                     pkl.dump(start + idx, f)
-        pbar.close()
 
-        test_acc = self.network.accuracy(self.x_test, self.t_test)
+        if start < self.max_iter:         
+            self.save_acc_list(acc_list_file_name)
+            self.network.save_params(params_file_name)
+            with open(iter_num_file_name, 'wb') as f:
+                    pkl.dump(start + idx, f)  #최종결과 저장
+
+        test_acc = self.network.accuracy(self.x_test, self.t_test, self.batch_size)
 
         if self.verbose:
             print("=============== Final Test Accuracy ===============")

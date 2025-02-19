@@ -105,14 +105,14 @@ class Adam:
 
     """Adam (http://arxiv.org/abs/1412.6980v8)"""
 
-    def __init__(self, lr=0.001, beta1=0.9, beta2=0.999, precison = np.float64):
+    def __init__(self, lr=0.001, beta1=0.9, beta2=0.999, precision = np.float64):
         self.lr = lr
         self.beta1 = beta1
         self.beta2 = beta2
         self.iter = 0
         self.m = None
         self.v = None
-        self.precision = precison
+        self.precision = precision
         
     def update(self, params, grads):
         if self.m is None:

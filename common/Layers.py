@@ -85,7 +85,7 @@ class SoftmaxWithLoss:
         self.y = softmax(x)
         self.loss = cross_entropy_error(self.y, self.t)
         
-        return self.loss
+        return float(self.loss)
 
     def backward(self, dout=1):
         batch_size = self.t.shape[0]
@@ -167,12 +167,20 @@ class BatchNormalization:
             self.xc = xc
             self.xn = xn
             self.std = std
+
+            del xc
+            del std
+
             self.running_mean = self.momentum * self.running_mean + (1-self.momentum) * mu
-            self.running_var = self.momentum * self.running_var + (1-self.momentum) * var            
+            self.running_var = self.momentum * self.running_var + (1-self.momentum) * var   
+
+            del mu
+            del var         
         else:
             xc = x - self.running_mean
             xn = xc / ((np.sqrt(self.running_var + 10e-7, dtype = self.precision)))
-            
+            del xc
+
         out = self.gamma * xn + self.beta 
         return out
 
